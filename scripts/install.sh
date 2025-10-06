@@ -124,7 +124,7 @@ refresh_current_shell() {
     return
   fi
 
-  local command="[ -r $helper ] && . $helper && command -v set-proxy >/dev/null 2>&1 && { HIDDIFY_PROXY_PRIME=1 set-proxy || true; set-proxy --status; } || true"
+  local command="[ -r $helper ] && . $helper && command -v set-proxy >/dev/null 2>&1 && set-proxy --status || true"
   local tty_candidates=()
   local tty_path
 
@@ -153,3 +153,35 @@ refresh_current_shell() {
 }
 
 refresh_current_shell
+
+preview_proxy_location() {
+  local proxy_script="$repo_dir/scripts/set-proxy.sh"
+  if [[ ! -r "$proxy_script" ]]; then
+    return
+  fi
+
+  info "Probing proxy to report exit IP ..."
+
+  local attempt output last_output="" success=0
+  for attempt in 1 2 3 4 5; do
+    output=$(bash --noprofile --norc -c "HIDDIFY_PROXY_PRIME=1 source '$proxy_script'" </dev/null 2>&1) || output=""
+    if grep -q 'Proxy active\. External IP:' <<< "$output"; then
+      printf '%s\n' "$output"
+      success=1
+      break
+    fi
+    last_output="$output"
+    sleep 2
+  done
+
+  if (( success == 0 )); then
+    [[ -n "$last_output" ]] && printf '%s\n' "$last_output"
+    warn "Proxy preview could not confirm an external IP. Run 'set-proxy' to investigate."
+  fi
+
+  local status_output
+  status_output=$(bash --noprofile --norc -c "source '$proxy_script' --status" </dev/null 2>&1) || status_output=""
+  [[ -n "$status_output" ]] && printf '%s\n' "$status_output"
+}
+
+preview_proxy_location
