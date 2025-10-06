@@ -46,6 +46,26 @@ if ! getent group docker >/dev/null 2>&1; then
   groupadd --system docker
 fi
 
+DOCKER_GROUP_MSG="Add desired users to the docker group (e.g., sudo usermod -aG docker <user>)."
+TARGET_USER=""
+
+if command -v usermod >/dev/null 2>&1; then
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    TARGET_USER="$SUDO_USER"
+  elif [ -n "${LOGNAME:-}" ] && [ "$LOGNAME" != "root" ]; then
+    TARGET_USER="$LOGNAME"
+  fi
+
+  if [ -n "$TARGET_USER" ]; then
+    if command -v id >/dev/null 2>&1 && id -nG "$TARGET_USER" 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+      DOCKER_GROUP_MSG="User '$TARGET_USER' is already in the docker group."
+    else
+      usermod -aG docker "$TARGET_USER"
+      DOCKER_GROUP_MSG="User '$TARGET_USER' added to the docker group. Log out/in (or run 'newgrp docker') to apply permissions."
+    fi
+  fi
+fi
+
 if command -v systemctl >/dev/null 2>&1; then
   mkdir -p "$SYSTEMD_DIR"
 
@@ -133,4 +153,6 @@ Docker binaries installed to $BIN_DIR
 Docker Compose plugin installed to $PLUGIN_DIR/docker-compose
 
 Docker systemd units have been installed${SYSTEMD_UNIT_MSG}.
+
+${DOCKER_GROUP_MSG}
 INFO
