@@ -6,6 +6,61 @@ STATE_FILE="$SCRIPT_DIR/.proxy-state"
 
 SHELL_BIN="${SHELL:-/bin/bash}"
 NON_INTERACTIVE="${HIDDIFY_PROXY_NONINTERACTIVE:-0}"
+CURL_TIMEOUT="${HIDDIFY_PROXY_TIMEOUT:-8}"
+
+proxy_env() {
+  env \
+    http_proxy="$PROXY_URL" \
+    HTTP_PROXY="$PROXY_URL" \
+    https_proxy="$PROXY_URL" \
+    HTTPS_PROXY="$PROXY_URL" \
+    all_proxy="$PROXY_URL" \
+    ALL_PROXY="$PROXY_URL" \
+    ftp_proxy="$PROXY_URL" \
+    FTP_PROXY="$PROXY_URL" \
+    no_proxy="$NO_PROXY_LIST" \
+    NO_PROXY="$NO_PROXY_LIST" \
+    HIDDIFY_PROXY="on" \
+    "$@"
+}
+
+print_proxy_summary() {
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "Proxy enabled. Skipping IP check because curl is unavailable."
+    return
+  fi
+
+  local ip city region country location
+  ip=$(proxy_env curl -fsSL --max-time "$CURL_TIMEOUT" https://icanhazip.com 2>/dev/null | tr -d '\r\n' || true)
+
+  if [[ -z "$ip" ]]; then
+    echo "Proxy enabled but external IP lookup failed (network or service issue)."
+    return
+  fi
+
+  city=$(proxy_env curl -fsSL --max-time "$CURL_TIMEOUT" https://ipinfo.io/city 2>/dev/null | tr -d '\r\n' || true)
+  region=$(proxy_env curl -fsSL --max-time "$CURL_TIMEOUT" https://ipinfo.io/region 2>/dev/null | tr -d '\r\n' || true)
+  country=$(proxy_env curl -fsSL --max-time "$CURL_TIMEOUT" https://ipinfo.io/country 2>/dev/null | tr -d '\r\n' || true)
+
+  location=""
+  if [[ -n "$city" ]]; then
+    location+="$city"
+  fi
+  if [[ -n "$region" && "$region" != "$city" ]]; then
+    [[ -n "$location" ]] && location+=" "
+    location+="$region"
+  fi
+  if [[ -n "$country" ]]; then
+    [[ -n "$location" ]] && location+=" "
+    location+="$country"
+  fi
+
+  if [[ -n "$location" ]]; then
+    echo "Proxy active. External IP: $ip ($location)."
+  else
+    echo "Proxy active. External IP: $ip."
+  fi
+}
 
 find_proxy_port() {
   if [ -n "${PROXY_PORT:-}" ]; then
@@ -96,6 +151,7 @@ if [ -f "$STATE_FILE" ]; then
 else
   echo "Enabling proxy on $PROXY_URL ..."
   write_state "on"
+  print_proxy_summary || true
   if [ "$NON_INTERACTIVE" = "1" ]; then
     echo "Proxy entries staged for 127.0.0.1:$PROXY_PORT. Run 'set-proxy' to toggle interactively."
     exit 0

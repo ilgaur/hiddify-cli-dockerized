@@ -20,6 +20,14 @@ This repository ships the Hiddify CLI binary together with a prebuilt Docker ima
 Run the automated bootstrapper:
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/ilgaur/hiddify-cli-dockerized/main/install.sh | bash
+```
+
+The installer checks out this repository (defaults to `~/hiddify-cli-dockerized`), keeps it up to date, and invokes the local `setup.sh` with sudo.
+
+Already have the repo on disk? Run the setup directly:
+
+```bash
 sudo ./setup.sh
 ```
 
@@ -40,7 +48,7 @@ The compose file publishes only the proxy port using the value from `.env`. Opti
 
 ### Proxy toggle helper
 
-Run `./set-proxy.sh` to launch a new interactive shell with `http_proxy`, `https_proxy`, and related variables pointing at the local Hiddify proxy. Run it again inside that shell to drop the settings and continue without a proxy.
+Run `./set-proxy.sh` to launch a new interactive shell with `http_proxy`, `https_proxy`, and related variables pointing at the local Hiddify proxy. The script verifies connectivity and prints the observed exit IP/location. Run it again inside that shell to drop the settings and continue without a proxy.
 
 ### Installing Docker offline
 

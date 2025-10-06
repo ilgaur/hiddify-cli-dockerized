@@ -216,15 +216,29 @@ ALIASEOF
 
 deploy_stack() {
   info "Starting Docker Compose stack ..."
-  docker compose up -d
+  if docker compose version >/dev/null 2>&1; then
+    docker compose up -d
+  elif command -v docker-compose >/dev/null 2>&1; then
+    docker-compose up -d
+  else
+    warn "Neither 'docker compose' nor 'docker-compose' is available."
+    exit 1
+  fi
 }
 
 enable_proxy_toggle() {
   if [[ -x "$SCRIPT_DIR/set-proxy.sh" ]]; then
     echo
-    info "Opening a proxied shell for $REPO_USER (exit to continue)."
-    if ! run_as_user "$REPO_USER" "$SCRIPT_DIR/set-proxy.sh"; then
-      warn "Unable to launch proxied shell for $REPO_USER. Run 'set-proxy' manually."
+    if [[ -t 0 && -t 1 ]]; then
+      info "Opening a proxied shell for $REPO_USER (exit to continue)."
+      if ! run_as_user "$REPO_USER" "$SCRIPT_DIR/set-proxy.sh"; then
+        warn "Unable to launch proxied shell for $REPO_USER. Run 'set-proxy' manually."
+      fi
+    else
+      info "Non-interactive session detected; priming proxy toggle for $REPO_USER."
+      if ! run_as_user "$REPO_USER" env HIDDIFY_PROXY_NONINTERACTIVE=1 bash "$SCRIPT_DIR/set-proxy.sh"; then
+        warn "Unable to prime proxy toggle for $REPO_USER. Run 'set-proxy' manually."
+      fi
     fi
   fi
 }
@@ -251,6 +265,7 @@ summarise() {
 
 main() {
   cd "$SCRIPT_DIR"
+  mkdir -p "$STATE_DIR"
   ensure_executable "$SCRIPT_DIR/set-proxy.sh"
   ensure_executable "$SCRIPT_DIR/load-image.sh"
   ensure_executable "$SCRIPT_DIR/install-docker.sh"
