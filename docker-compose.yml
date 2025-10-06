@@ -9,5 +9,5 @@ services:
       - -c
       - ${SUBSCRIPTION_URL:?Set SUBSCRIPTION_URL in the .env file}
     ports:
-      - "${PROXY_PORT:-12334}:${PROXY_PORT:-12334}"
+      - "${PROXY_BIND_ADDRESS:-127.0.0.1}:${PROXY_PORT:-12334}:${PROXY_PORT:-12334}"
     restart: unless-stopped

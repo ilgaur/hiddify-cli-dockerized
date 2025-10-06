@@ -28,6 +28,7 @@ It will:
 
 ## Manual usage
 1. `cp .env.example .env` and set `SUBSCRIPTION_URL` (and adjust the proxy port if needed).
+   - Set `PROXY_BIND_ADDRESS=0.0.0.0` if you need to reach the proxy from other hosts; the default `127.0.0.1` keeps it local.
 2. `./scripts/load-image.sh` to import the bundled image (run once per host). The script auto-detects `.tar.xz` archives and pipes them into `docker load`.
 3. `docker compose up -d` to start the proxy service.
 

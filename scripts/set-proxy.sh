@@ -45,6 +45,13 @@ PROXY_EXPORT_VARS=(http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_P
 NO_PROXY_VARS=(no_proxy NO_PROXY)
 STATE_VARS=("${PROXY_EXPORT_VARS[@]}" "${NO_PROXY_VARS[@]}" HIDDIFY_PROXY)
 
+RETRY_COUNT="${HIDDIFY_PROXY_RETRIES:-5}"
+RETRY_INTERVAL="${HIDDIFY_PROXY_RETRY_INTERVAL:-2}"
+if [[ "$PRIME_MODE" == "1" ]]; then
+  RETRY_COUNT="${HIDDIFY_PROXY_PRIME_RETRIES:-12}"
+  RETRY_INTERVAL="${HIDDIFY_PROXY_PRIME_INTERVAL:-3}"
+fi
+
 declare -Ag _proxy_backup
 
 capture_current_env() {
@@ -179,16 +186,27 @@ print_proxy_summary() {
     return 0
   fi
 
-  local attempt result
+  local attempt result max_attempts interval
   local ip="" city="" region="" country="" location=""
 
-  for attempt in 1 2 3 4 5; do
+  max_attempts=$RETRY_COUNT
+  interval=$RETRY_INTERVAL
+  if ! [[ "$max_attempts" =~ ^[0-9]+$ ]] || (( max_attempts < 1 )); then
+    max_attempts=5
+  fi
+  if ! [[ "$interval" =~ ^[0-9]+$ ]] || (( interval < 1 )); then
+    interval=2
+  fi
+
+  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
     result=$(fetch_location || true)
     IFS='|' read -r ip city region country <<< "$result"
     if [[ -n "$ip" ]]; then
       break
     fi
-    sleep 2
+    if (( attempt < max_attempts )); then
+      sleep "$interval"
+    fi
   done
 
   if [[ -z "$ip" ]]; then

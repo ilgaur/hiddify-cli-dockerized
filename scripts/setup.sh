@@ -115,6 +115,44 @@ prompt_value() {
   done
 }
 
+prompt_proxy_bind_address() {
+  local default_choice="$1" input
+  local normalized_default
+
+  case "${default_choice,,}" in
+    y|yes)
+      normalized_default="y"
+      ;;
+    n|no|"")
+      normalized_default="n"
+      ;;
+    *)
+      normalized_default="$default_choice"
+      ;;
+  esac
+
+  while true; do
+    input=$(prompt_value "PROXY_BIND_PROMPT" "Expose proxy on all interfaces? (y/N or IP)" "$normalized_default" false)
+    case "${input,,}" in
+      y|yes)
+        printf '0.0.0.0'
+        return
+        ;;
+      n|no)
+        printf '127.0.0.1'
+        return
+        ;;
+      *)
+        if [[ "$input" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+          printf '%s' "$input"
+          return
+        fi
+        warn "Please enter 'y', 'n', or an IPv4 address."
+    esac
+    normalized_default="n"
+  done
+}
+
 append_shell_block() {
   local target="$1" marker="$2" content="$3"
   if [[ ! -e "$target" ]]; then
@@ -202,6 +240,25 @@ configure_env_file() {
   local proxy_port
   proxy_port=$(prompt_value "PROXY_PORT" "Proxy port" "${example_default:-12334}" false)
   set_env_value PROXY_PORT "$proxy_port"
+
+  local bind_existing
+  bind_existing=$(get_env_value PROXY_BIND_ADDRESS "$ENV_FILE")
+  [[ -z "$bind_existing" ]] && bind_existing=$(get_env_value PROXY_BIND_ADDRESS "$ENV_TEMPLATE")
+  local bind_prompt_default
+  case "${bind_existing,,}" in
+    0.0.0.0)
+      bind_prompt_default="y"
+      ;;
+    ""|127.0.0.1)
+      bind_prompt_default="n"
+      ;;
+    *)
+      bind_prompt_default="$bind_existing"
+      ;;
+  esac
+  local bind_address
+  bind_address=$(prompt_proxy_bind_address "$bind_prompt_default")
+  set_env_value PROXY_BIND_ADDRESS "$bind_address"
 
   local check_interval_default
   check_interval_default=$(get_env_value CHECK_INTERVAL "$ENV_FILE")
@@ -323,7 +380,13 @@ enable_proxy_toggle() {
   if [[ -x "$ROOT_DIR/scripts/set-proxy.sh" ]]; then
     echo
     info "Verifying proxy reachability for $REPO_USER ..."
-    if ! run_as_user "$REPO_USER" bash -lc "HIDDIFY_PROXY_PRIME=1 source '$ROOT_DIR/scripts/set-proxy.sh'"; then
+    local prime_retries="${HIDDIFY_PROXY_PRIME_RETRIES:-15}"
+    local prime_interval="${HIDDIFY_PROXY_PRIME_INTERVAL:-3}"
+    local prime_cmd="HIDDIFY_PROXY_PRIME=1 HIDDIFY_PROXY_PRIME_RETRIES=$prime_retries HIDDIFY_PROXY_PRIME_INTERVAL=$prime_interval source '$ROOT_DIR/scripts/set-proxy.sh'"
+    local preview_output="" preview_status=0
+    preview_output=$(run_as_user "$REPO_USER" bash -lc "$prime_cmd" 2>&1) || preview_status=$?
+    [[ -n "$preview_output" ]] && printf '%s\n' "$preview_output"
+    if (( preview_status != 0 )); then
       warn "Unable to verify proxy connectivity for $REPO_USER. Run 'set-proxy' manually if needed."
     fi
     if [[ -t 0 && -t 1 ]]; then
