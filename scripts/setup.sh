@@ -323,15 +323,9 @@ enable_proxy_toggle() {
   if [[ -x "$ROOT_DIR/scripts/set-proxy.sh" ]]; then
     echo
     if [[ -t 0 && -t 1 ]]; then
-      info "Opening a proxied shell for $REPO_USER (exit to continue)."
-      if ! run_as_user "$REPO_USER" "$ROOT_DIR/scripts/set-proxy.sh"; then
-        warn "Unable to launch proxied shell for $REPO_USER. Run 'set-proxy' manually."
-      fi
+      info "Proxy helper primed; it will auto-enable once in your next shell."
     else
-      info "Non-interactive session detected; priming proxy toggle for $REPO_USER."
-      if ! run_as_user "$REPO_USER" env HIDDIFY_PROXY_NONINTERACTIVE=1 HIDDIFY_PROXY_PRIME=1 bash "$ROOT_DIR/scripts/set-proxy.sh"; then
-        warn "Unable to prime proxy toggle for $REPO_USER. Run 'set-proxy' manually."
-      fi
+      info "Proxy helper primed for $REPO_USER; the next interactive shell will auto-enable it."
     fi
   fi
 }
