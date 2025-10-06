@@ -8,6 +8,7 @@ STATE_FILE="$ROOT_DIR/.proxy-state"
 SHELL_BIN="${SHELL:-/bin/bash}"
 NON_INTERACTIVE="${HIDDIFY_PROXY_NONINTERACTIVE:-0}"
 CURL_TIMEOUT="${HIDDIFY_PROXY_TIMEOUT:-8}"
+PRIME_MODE="${HIDDIFY_PROXY_PRIME:-0}"
 
 proxy_env() {
   env \
@@ -25,27 +26,75 @@ proxy_env() {
     "$@"
 }
 
+extract_json_field() {
+  local json="$1" key="$2"
+  printf '%s' "$json" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\\1/p"
+}
+
+fetch_location() {
+  local json compact ip city region country
+
+  json=$(proxy_env curl -4 -fsSL --max-time "$CURL_TIMEOUT" -H "Accept: application/json" https://ifconfig.co/json 2>/dev/null || true)
+  if [[ -n "$json" ]]; then
+    compact=$(printf '%s' "$json" | tr -d '\r\n')
+    ip=$(extract_json_field "$compact" "ip")
+    city=$(extract_json_field "$compact" "city")
+    region=$(extract_json_field "$compact" "region")
+    [[ -z "$region" ]] && region=$(extract_json_field "$compact" "region_name")
+    country=$(extract_json_field "$compact" "country")
+    [[ -z "$country" ]] && country=$(extract_json_field "$compact" "country_iso")
+    if [[ -n "$ip" ]]; then
+      printf '%s|%s|%s|%s' "$ip" "$city" "$region" "$country"
+      return 0
+    fi
+  fi
+
+  json=$(proxy_env curl -4 -fsSL --max-time "$CURL_TIMEOUT" https://ipinfo.io/json 2>/dev/null || true)
+  if [[ -n "$json" ]]; then
+    compact=$(printf '%s' "$json" | tr -d '\r\n')
+    ip=$(extract_json_field "$compact" "ip")
+    city=$(extract_json_field "$compact" "city")
+    region=$(extract_json_field "$compact" "region")
+    country=$(extract_json_field "$compact" "country")
+    if [[ -n "$ip" ]]; then
+      printf '%s|%s|%s|%s' "$ip" "$city" "$region" "$country"
+      return 0
+    fi
+  fi
+
+  ip=$(proxy_env curl -4 -fsSL --max-time "$CURL_TIMEOUT" https://icanhazip.com 2>/dev/null | tr -d '\r\n' || true)
+  if [[ -n "$ip" ]]; then
+    printf '%s|||' "$ip"
+    return 0
+  fi
+
+  return 1
+}
+
 print_proxy_summary() {
   if ! command -v curl >/dev/null 2>&1; then
     echo "Proxy enabled. Skipping IP check because curl is unavailable."
     return
   fi
 
-  local ip city region country location
-  ip=$(proxy_env curl -fsSL --max-time "$CURL_TIMEOUT" https://icanhazip.com 2>/dev/null | tr -d '\r\n' || true)
+  local attempt ip="" city="" region="" country="" location="" result=""
+
+  for attempt in 1 2 3 4 5; do
+    result=$(fetch_location || true)
+    IFS='|' read -r ip city region country <<< "$result"
+    if [[ -n "$ip" ]]; then
+      break
+    fi
+    sleep 2
+  done
 
   if [[ -z "$ip" ]]; then
-    echo "Proxy enabled but external IP lookup failed (network or service issue)."
-    return
+    echo "Proxy active but external IP lookup failed (network or service issue)."
+    return 1
   fi
 
-  city=$(proxy_env curl -fsSL --max-time "$CURL_TIMEOUT" https://ipinfo.io/city 2>/dev/null | tr -d '\r\n' || true)
-  region=$(proxy_env curl -fsSL --max-time "$CURL_TIMEOUT" https://ipinfo.io/region 2>/dev/null | tr -d '\r\n' || true)
-  country=$(proxy_env curl -fsSL --max-time "$CURL_TIMEOUT" https://ipinfo.io/country 2>/dev/null | tr -d '\r\n' || true)
-
-  location=""
   if [[ -n "$city" ]]; then
-    location+="$city"
+    location="$city"
   fi
   if [[ -n "$region" && "$region" != "$city" ]]; then
     [[ -n "$location" ]] && location+=" "
@@ -140,6 +189,19 @@ launch_shell_without_env() {
 }
 
 ensure_shell_present
+
+CURRENT_STATE=0
+[[ -f "$STATE_FILE" ]] && CURRENT_STATE=1
+
+if [[ "$PRIME_MODE" = "1" ]]; then
+  print_proxy_summary || true
+  if [[ $CURRENT_STATE -eq 1 ]]; then
+    echo "Proxy already enabled; leaving existing state."
+  else
+    echo "Proxy check complete; proxy remains disabled. Use 'set-proxy' to enable when needed."
+  fi
+  exit 0
+fi
 
 if [ -f "$STATE_FILE" ]; then
   echo "Disabling proxy..."

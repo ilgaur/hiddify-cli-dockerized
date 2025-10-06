@@ -274,7 +274,7 @@ enable_proxy_toggle() {
       fi
     else
       info "Non-interactive session detected; priming proxy toggle for $REPO_USER."
-      if ! run_as_user "$REPO_USER" env HIDDIFY_PROXY_NONINTERACTIVE=1 bash "$ROOT_DIR/scripts/set-proxy.sh"; then
+      if ! run_as_user "$REPO_USER" env HIDDIFY_PROXY_NONINTERACTIVE=1 HIDDIFY_PROXY_PRIME=1 bash "$ROOT_DIR/scripts/set-proxy.sh"; then
         warn "Unable to prime proxy toggle for $REPO_USER. Run 'set-proxy' manually."
       fi
     fi
