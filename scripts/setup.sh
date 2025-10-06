@@ -81,11 +81,27 @@ set_env_value() {
 
 prompt_value() {
   local key="$1" label="$2" default_value="$3" required="$4" input
+  local prompt tty_available=1
+
+  if [[ ! -t 0 && ! -r /dev/tty ]]; then
+    tty_available=0
+  fi
+
   while true; do
-    local prompt="$label"
+    prompt="$label"
     [[ -n "$default_value" ]] && prompt+=" [${default_value}]"
     prompt+=": "
-    read -r -p "$prompt" input
+    if [[ $tty_available -eq 1 ]]; then
+      if [[ -t 0 ]]; then
+        read -r -p "$prompt" input
+      else
+        read -r -p "$prompt" input < /dev/tty
+      fi
+    else
+      info "Non-interactive session: using default value for $label."
+      input="$default_value"
+    fi
+
     if [[ -z "$input" ]]; then
       input="$default_value"
     fi
@@ -227,6 +243,15 @@ ALIASEOF
   fi
 }
 
+install_proxy_command() {
+  local wrapper="/usr/local/bin/set-proxy"
+  cat <<EOF > "$wrapper"
+#!/usr/bin/env bash
+exec bash "$ROOT_DIR/scripts/set-proxy.sh" "\$@"
+EOF
+  chmod 0755 "$wrapper"
+}
+
 deploy_stack() {
   info "Starting Docker Compose stack ..."
   if docker compose version >/dev/null 2>&1; then
@@ -272,7 +297,7 @@ summarise() {
   else
     echo "Alias 'set-proxy' already present."
   fi
-  echo "Use 'set-proxy' to enable/disable the local proxy in your shells."
+  echo "Use 'set-proxy' (command or alias) to toggle the local proxy in your shells."
   echo "You can check the stack with 'docker compose ps'."
 }
 
@@ -290,6 +315,7 @@ main() {
   ensure_image_loaded
   deploy_stack
   setup_aliases
+  install_proxy_command
   enable_proxy_toggle
   summarise
 }

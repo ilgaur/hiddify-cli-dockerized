@@ -49,7 +49,7 @@ The compose file publishes only the proxy port using the value from `.env`. Opti
 
 ### Proxy toggle helper
 
-Run `./scripts/set-proxy.sh` to launch a new interactive shell with `http_proxy`, `https_proxy`, and related variables pointing at the local Hiddify proxy. The script verifies connectivity and prints the observed exit IP/location. Run it again inside that shell to drop the settings and continue without a proxy.
+Run `set-proxy` (created under `/usr/local/bin`) or `./scripts/set-proxy.sh` to launch a new interactive shell with `http_proxy`, `https_proxy`, and related variables pointing at the local Hiddify proxy. The script verifies connectivity and prints the observed exit IP/location. Run it again inside that shell to drop the settings and continue without a proxy.
 
 ### Installing Docker offline
 
