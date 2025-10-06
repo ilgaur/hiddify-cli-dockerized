@@ -7,3 +7,4 @@ data/
 tmp/
 webui/
 .proxy-state
+.state/

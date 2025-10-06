@@ -5,6 +5,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 STATE_FILE="$SCRIPT_DIR/.proxy-state"
 
 SHELL_BIN="${SHELL:-/bin/bash}"
+NON_INTERACTIVE="${HIDDIFY_PROXY_NONINTERACTIVE:-0}"
 
 find_proxy_port() {
   if [ -n "${PROXY_PORT:-}" ]; then
@@ -87,9 +88,17 @@ ensure_shell_present
 if [ -f "$STATE_FILE" ]; then
   echo "Disabling proxy..."
   remove_state
+  if [ "$NON_INTERACTIVE" = "1" ]; then
+    echo "Proxy entries removed."
+    exit 0
+  fi
   launch_shell_without_env
 else
   echo "Enabling proxy on $PROXY_URL ..."
   write_state "on"
+  if [ "$NON_INTERACTIVE" = "1" ]; then
+    echo "Proxy entries staged for 127.0.0.1:$PROXY_PORT. Run 'set-proxy' to toggle interactively."
+    exit 0
+  fi
   launch_shell_with_env
 fi

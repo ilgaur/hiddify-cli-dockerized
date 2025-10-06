@@ -12,9 +12,26 @@ This repository ships the Hiddify CLI binary together with a prebuilt Docker ima
 - `load-image.sh` – helper that loads the exported image with `docker load`.
 - `docker-bin/` – static Docker Engine and Compose binaries for offline installation.
 - `install-docker.sh` – installs the bundled Docker binaries onto the host.
+- `setup.sh` – interactive bootstrapper that wires everything together.
 - `set-proxy.sh` – toggles local proxy environment variables for interactive shells.
 
-## Usage
+## Quick start
+
+Run the automated bootstrapper:
+
+```bash
+sudo ./setup.sh
+```
+
+It will:
+
+- ensure the helper scripts are executable
+- collect the required environment values (subscription URL, ports, health-check tuning)
+- install Docker & Compose from `docker-bin/` when missing (and add you to the `docker` group)
+- load the bundled image, launch the stack, and register a `set-proxy` alias system-wide
+- prime the proxy toggle once so your next shell can use the local proxy immediately
+
+## Manual usage
 1. `cp .env.example .env` and set `SUBSCRIPTION_URL` (and adjust the proxy port if needed).
 2. `./load-image.sh` to import the bundled image (run once per host). The script auto-detects `.tar.xz` archives and pipes them into `docker load`.
 3. `docker compose up -d` to start the proxy service.
