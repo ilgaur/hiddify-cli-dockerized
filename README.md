@@ -27,4 +27,4 @@ Run `./set-proxy.sh` to launch a new interactive shell with `http_proxy`, `https
 
 ### Installing Docker offline
 
-If the target machine lacks Docker, copy this repository and run `sudo ./install-docker.sh`. The script installs the static `docker` CLI, daemon, and Compose plugin from `docker-bin/` into `/usr/local`, provisions matching systemd units, enables/starts both containerd and Docker (mirroring the official convenience script), and adds the invoking user to the `docker` group when possible. On systems without systemd the script prints a reminder to start the daemons manually.
+If the target machine lacks Docker, copy this repository and run `sudo ./install-docker.sh`. The script installs the static `docker` CLI, daemon, Compose plugin (including a `docker-compose` shim) from `docker-bin/` into `/usr/local`, provisions matching systemd units, enables/starts both containerd and Docker (mirroring the official convenience script), and adds the invoking user to the `docker` group when possible. On systems without systemd the script prints a reminder to start the daemons manually.

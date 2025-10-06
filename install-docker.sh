@@ -41,6 +41,7 @@ cp -f "$TMPDIR"/docker/* "$BIN_DIR/"
 chmod +x "$BIN_DIR"/docker*
 
 install -m 0755 "$COMPOSE_BIN" "$PLUGIN_DIR/docker-compose"
+ln -sf "$PLUGIN_DIR/docker-compose" "$BIN_DIR/docker-compose"
 
 if ! getent group docker >/dev/null 2>&1; then
   groupadd --system docker
