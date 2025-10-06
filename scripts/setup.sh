@@ -16,7 +16,7 @@ ENV_TEMPLATE="$ROOT_DIR/.env.example"
 REPO_USER="${SUDO_USER:-root}"
 REPO_USER_HOME=$(getent passwd "$REPO_USER" | cut -d: -f6 || true)
 [[ -z "$REPO_USER_HOME" ]] && REPO_USER_HOME="$ROOT_DIR"
-ALIAS_LINE="alias set-proxy='bash $ROOT_DIR/scripts/set-proxy.sh'"
+SET_PROXY_MARKER="set-proxy() {"
 declare -a alias_targets=()
 docker_group_notice=""
 
@@ -114,15 +114,27 @@ prompt_value() {
   done
 }
 
-ensure_alias_line() {
-  local target="$1"
+append_shell_block() {
+  local target="$1" marker="$2" content="$3"
   if [[ ! -e "$target" ]]; then
     touch "$target"
     set_owner_if_needed "$target"
   fi
-  if ! grep -Fqx "$ALIAS_LINE" "$target" 2>/dev/null; then
-    printf '\n%s\n' "$ALIAS_LINE" >> "$target"
+  if ! grep -Fqx "$marker" "$target" 2>/dev/null; then
+    printf '\n%s\n' "$content" >> "$target"
     alias_targets+=("$target")
+  fi
+}
+
+remove_legacy_alias() {
+  local target="$1"
+  [[ -f "$target" ]] || return
+  if grep -q '^alias set-proxy=' "$target" 2>/dev/null; then
+    local tmp
+    tmp=$(mktemp)
+    grep -v '^alias set-proxy=' "$target" > "$tmp"
+    mv "$tmp" "$target"
+    set_owner_if_needed "$target"
   fi
 }
 
@@ -227,17 +239,33 @@ configure_env_file() {
 
 setup_aliases() {
   alias_targets=()
+
+  local set_proxy_block set_proxy_profile
+
+  read -r -d '' set_proxy_block <<'EOF_BLOCK' || true
+set-proxy() {
+  . "%ROOT_DIR%/scripts/set-proxy.sh" "\$@"
+}
+EOF_BLOCK
+  set_proxy_block=${set_proxy_block//%ROOT_DIR%/$ROOT_DIR}
+
   local user_files=("$REPO_USER_HOME/.bashrc" "$REPO_USER_HOME/.profile" "$REPO_USER_HOME/.bash_profile" "$REPO_USER_HOME/.zshrc")
   for file in "${user_files[@]}"; do
-    ensure_alias_line "$file"
+    remove_legacy_alias "$file"
+    append_shell_block "$file" "$SET_PROXY_MARKER" "$set_proxy_block"
   done
+
+  read -r -d '' set_proxy_profile <<'EOF_PROFILE' || true
+#!/bin/sh
+set-proxy() {
+  . "%ROOT_DIR%/scripts/set-proxy.sh" "\$@"
+}
+EOF_PROFILE
+  set_proxy_profile=${set_proxy_profile//%ROOT_DIR%/$ROOT_DIR}
 
   if [[ -d /etc/profile.d ]]; then
     local profile_script="/etc/profile.d/hiddify-proxy.sh"
-    cat <<ALIASEOF > "$profile_script"
-#!/bin/sh
-$ALIAS_LINE
-ALIASEOF
+    printf '%s\n' "$set_proxy_profile" > "$profile_script"
     chmod 0644 "$profile_script"
     alias_targets+=("$profile_script")
   fi
@@ -247,7 +275,9 @@ install_proxy_command() {
   local wrapper="/usr/local/bin/set-proxy"
   cat <<EOF > "$wrapper"
 #!/usr/bin/env bash
-exec bash "$ROOT_DIR/scripts/set-proxy.sh" "\$@"
+echo "Use 'set-proxy' from an interactive shell (function)." >&2
+echo "If you need to inspect the current proxy state, run: source \"$ROOT_DIR/scripts/set-proxy.sh\" --status" >&2
+exit 1
 EOF
   chmod 0755 "$wrapper"
 }
@@ -297,7 +327,7 @@ summarise() {
   else
     echo "Alias 'set-proxy' already present."
   fi
-  echo "Use 'set-proxy' (command or alias) to toggle the local proxy in your shells."
+  echo "Use 'set-proxy' (shell function) to toggle the local proxy in your shells."
   echo "You can check the stack with 'docker compose ps'."
 }
 

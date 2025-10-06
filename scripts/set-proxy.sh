@@ -1,71 +1,168 @@
-#!/usr/bin/env bash
-set -euo pipefail
+# shellcheck shell=bash
+if [[ ${BASH_SOURCE[0]:-} == "$0" ]]; then
+  echo "This script is meant to be sourced (use: set-proxy)." >&2
+  exit 1
+fi
 
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+SCRIPT_DIR=$(cd "$(dirname "$BASH_SOURCE")" && pwd)
 ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 STATE_FILE="$ROOT_DIR/.proxy-state"
 
-SHELL_BIN="${SHELL:-/bin/bash}"
-NON_INTERACTIVE="${HIDDIFY_PROXY_NONINTERACTIVE:-0}"
+resolve_proxy_port() {
+  if [[ -n ${PROXY_PORT:-} ]]; then
+    printf '%s\n' "$PROXY_PORT"
+    return
+  fi
+
+  local port=""
+  if [[ -f "$ROOT_DIR/.env" ]]; then
+    port=$(awk -F= '/^PROXY_PORT=/{print $2; exit}' "$ROOT_DIR/.env")
+  fi
+  if [[ -z "$port" && -f "$ROOT_DIR/.env.example" ]]; then
+    port=$(awk -F= '/^PROXY_PORT=/{print $2; exit}' "$ROOT_DIR/.env.example")
+  fi
+  if [[ -z "$port" ]]; then
+    port=12334
+  fi
+  if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+    port=12334
+  fi
+  printf '%s\n' "$port"
+}
+
+PROXY_PORT=$(resolve_proxy_port)
+PROXY_URL="http://127.0.0.1:${PROXY_PORT}"
+NO_PROXY_LIST="localhost,127.0.0.1,::1"
 CURL_TIMEOUT="${HIDDIFY_PROXY_TIMEOUT:-8}"
 PRIME_MODE="${HIDDIFY_PROXY_PRIME:-0}"
 
-proxy_env() {
-  env \
-    http_proxy="$PROXY_URL" \
-    HTTP_PROXY="$PROXY_URL" \
-    https_proxy="$PROXY_URL" \
-    HTTPS_PROXY="$PROXY_URL" \
-    all_proxy="$PROXY_URL" \
-    ALL_PROXY="$PROXY_URL" \
-    ftp_proxy="$PROXY_URL" \
-    FTP_PROXY="$PROXY_URL" \
-    no_proxy="$NO_PROXY_LIST" \
-    NO_PROXY="$NO_PROXY_LIST" \
-    HIDDIFY_PROXY="on" \
-    "$@"
+PROXY_EXPORT_VARS=(http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY ftp_proxy FTP_PROXY)
+NO_PROXY_VARS=(no_proxy NO_PROXY)
+STATE_VARS=("${PROXY_EXPORT_VARS[@]}" "${NO_PROXY_VARS[@]}" HIDDIFY_PROXY)
+
+declare -Ag _proxy_backup
+
+capture_current_env() {
+  _proxy_backup=()
+  for var in "${STATE_VARS[@]}"; do
+    if [[ -v $var ]]; then
+      _proxy_backup["$var"]="${!var}"
+    else
+      _proxy_backup["$var"]="__UNSET__"
+    fi
+  done
 }
 
-extract_json_field() {
-  local json="$1" key="$2"
-  printf '%s' "$json" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\\1/p"
+write_state_file() {
+  umask 077
+  {
+    echo "STATUS=on"
+    for var in "${STATE_VARS[@]}"; do
+      printf '%s=%q\n' "$var" "${_proxy_backup[$var]-__UNSET__}"
+    done
+  } > "$STATE_FILE"
+}
+
+read_state_file() {
+  [[ -f "$STATE_FILE" ]] || return 1
+  _proxy_backup=()
+  while IFS='=' read -r key value; do
+    [[ -z "$key" ]] && continue
+    if [[ "$key" == "STATUS" ]]; then
+      continue
+    fi
+    if [[ "$value" == "__UNSET__" ]]; then
+      _proxy_backup["$key"]="__UNSET__"
+    else
+      local decoded
+      eval "decoded=$value"
+      _proxy_backup["$key"]="$decoded"
+    fi
+  done < "$STATE_FILE"
+  return 0
+}
+
+restore_from_backup() {
+  for var in "${STATE_VARS[@]}"; do
+    local value="${_proxy_backup[$var]-__UNSET__}"
+    if [[ "$value" == "__UNSET__" ]]; then
+      unset "$var"
+    else
+      printf -v line 'export %s=%q' "$var" "$value"
+      eval "$line"
+    fi
+  done
+}
+
+apply_proxy_env() {
+  for var in "${PROXY_EXPORT_VARS[@]}"; do
+    printf -v line 'export %s=%q' "$var" "$PROXY_URL"
+    eval "$line"
+  done
+
+  local existing
+  existing="${_proxy_backup[no_proxy]-__UNSET__}"
+  if [[ "$existing" == "__UNSET__" || -z "$existing" ]]; then
+    export no_proxy="$NO_PROXY_LIST"
+  else
+    export no_proxy="$NO_PROXY_LIST,$existing"
+  fi
+
+  existing="${_proxy_backup[NO_PROXY]-__UNSET__}"
+  if [[ "$existing" == "__UNSET__" || -z "$existing" ]]; then
+    export NO_PROXY="$NO_PROXY_LIST"
+  else
+    export NO_PROXY="$NO_PROXY_LIST,$existing"
+  fi
+
+  export HIDDIFY_PROXY=on
+}
+
+clear_proxy_env() {
+  for var in "${STATE_VARS[@]}"; do
+    unset "$var"
+  done
+}
+
+is_proxy_enabled() {
+  [[ -f "$STATE_FILE" ]] && grep -q '^STATUS=on$' "$STATE_FILE"
 }
 
 fetch_location() {
-  local json compact ip city region country
+  local json ip city region country
 
-  json=$(proxy_env curl -4 -fsSL --max-time "$CURL_TIMEOUT" -H "Accept: application/json" https://ifconfig.co/json 2>/dev/null || true)
-  if [[ -n "$json" ]]; then
-    compact=$(printf '%s' "$json" | tr -d '\r\n')
-    ip=$(extract_json_field "$compact" "ip")
-    city=$(extract_json_field "$compact" "city")
-    region=$(extract_json_field "$compact" "region")
-    [[ -z "$region" ]] && region=$(extract_json_field "$compact" "region_name")
-    country=$(extract_json_field "$compact" "country")
-    [[ -z "$country" ]] && country=$(extract_json_field "$compact" "country_iso")
+  if command -v curl >/dev/null 2>&1; then
+    json=$(curl -4 -fsSL --max-time "$CURL_TIMEOUT" -H "Accept: application/json" https://ifconfig.co/json 2>/dev/null)
+    if [[ -n "$json" ]]; then
+      ip=$(printf '%s' "$json" | sed -n 's/.*"ip"[[:space:]]*:[[:space:]]*"\([^"[:space:]]*\)".*/\1/p')
+      city=$(printf '%s' "$json" | sed -n 's/.*"city"[[:space:]]*:[[:space:]]*"\([^"[:space:]]*\)".*/\1/p')
+      region=$(printf '%s' "$json" | sed -n 's/.*"region"[[:space:]]*:[[:space:]]*"\([^"[:space:]]*\)".*/\1/p')
+      [[ -z "$region" ]] && region=$(printf '%s' "$json" | sed -n 's/.*"region_name"[[:space:]]*:[[:space:]]*"\([^"[:space:]]*\)".*/\1/p')
+      country=$(printf '%s' "$json" | sed -n 's/.*"country"[[:space:]]*:[[:space:]]*"\([^"[:space:]]*\)".*/\1/p')
+      [[ -z "$country" ]] && country=$(printf '%s' "$json" | sed -n 's/.*"country_iso"[[:space:]]*:[[:space:]]*"\([^"[:space:]]*\)".*/\1/p')
+      if [[ -n "$ip" ]]; then
+        printf '%s|%s|%s|%s' "$ip" "$city" "$region" "$country"
+        return 0
+      fi
+    fi
+
+    json=$(curl -4 -fsSL --max-time "$CURL_TIMEOUT" https://ipinfo.io/json 2>/dev/null)
+    if [[ -n "$json" ]]; then
+      ip=$(printf '%s' "$json" | sed -n 's/.*"ip"[[:space:]]*:[[:space:]]*"\([^"[:space:]]*\)".*/\1/p')
+      city=$(printf '%s' "$json" | sed -n 's/.*"city"[[:space:]]*:[[:space:]]*"\([^"[:space:]]*\)".*/\1/p')
+      region=$(printf '%s' "$json" | sed -n 's/.*"region"[[:space:]]*:[[:space:]]*"\([^"[:space:]]*\)".*/\1/p')
+      country=$(printf '%s' "$json" | sed -n 's/.*"country"[[:space:]]*:[[:space:]]*"\([^"[:space:]]*\)".*/\1/p')
+      if [[ -n "$ip" ]]; then
+        printf '%s|%s|%s|%s' "$ip" "$city" "$region" "$country"
+        return 0
+      fi
+    fi
+
+    ip=$(curl -4 -fsSL --max-time "$CURL_TIMEOUT" https://icanhazip.com 2>/dev/null | tr -d '\r\n')
     if [[ -n "$ip" ]]; then
-      printf '%s|%s|%s|%s' "$ip" "$city" "$region" "$country"
+      printf '%s|||' "$ip"
       return 0
     fi
-  fi
-
-  json=$(proxy_env curl -4 -fsSL --max-time "$CURL_TIMEOUT" https://ipinfo.io/json 2>/dev/null || true)
-  if [[ -n "$json" ]]; then
-    compact=$(printf '%s' "$json" | tr -d '\r\n')
-    ip=$(extract_json_field "$compact" "ip")
-    city=$(extract_json_field "$compact" "city")
-    region=$(extract_json_field "$compact" "region")
-    country=$(extract_json_field "$compact" "country")
-    if [[ -n "$ip" ]]; then
-      printf '%s|%s|%s|%s' "$ip" "$city" "$region" "$country"
-      return 0
-    fi
-  fi
-
-  ip=$(proxy_env curl -4 -fsSL --max-time "$CURL_TIMEOUT" https://icanhazip.com 2>/dev/null | tr -d '\r\n' || true)
-  if [[ -n "$ip" ]]; then
-    printf '%s|||' "$ip"
-    return 0
   fi
 
   return 1
@@ -74,10 +171,11 @@ fetch_location() {
 print_proxy_summary() {
   if ! command -v curl >/dev/null 2>&1; then
     echo "Proxy enabled. Skipping IP check because curl is unavailable."
-    return
+    return 0
   fi
 
-  local attempt ip="" city="" region="" country="" location="" result=""
+  local attempt result
+  local ip="" city="" region="" country="" location=""
 
   for attempt in 1 2 3 4 5; do
     result=$(fetch_location || true)
@@ -93,9 +191,7 @@ print_proxy_summary() {
     return 1
   fi
 
-  if [[ -n "$city" ]]; then
-    location="$city"
-  fi
+  [[ -n "$city" ]] && location="$city"
   if [[ -n "$region" && "$region" != "$city" ]]; then
     [[ -n "$location" ]] && location+=" "
     location+="$region"
@@ -110,114 +206,67 @@ print_proxy_summary() {
   else
     echo "Proxy active. External IP: $ip."
   fi
+  return 0
 }
 
-find_proxy_port() {
-  if [ -n "${PROXY_PORT:-}" ]; then
-    port="$PROXY_PORT"
+prime_proxy() {
+  capture_current_env
+  apply_proxy_env
+  print_proxy_summary || true
+  restore_from_backup
+}
+
+show_status() {
+  if is_proxy_enabled; then
+    echo "Proxy enabled (listening on $PROXY_URL)."
   else
-    port=""
-    for candidate in "$ROOT_DIR/.env" "$ROOT_DIR/.env.example"; do
-      if [ -z "$port" ] && [ -f "$candidate" ]; then
-        value=$(grep -E '^PROXY_PORT=' "$candidate" | tail -n 1 | cut -d '=' -f2-)
-        if [ -n "$value" ]; then
-          port="$value"
-        fi
-      fi
-    done
-  fi
-
-  if ! printf '%s' "$port" | grep -Eq '^[0-9]+$'; then
-    port="12334"
-  fi
-
-  printf '%s' "$port"
-}
-
-PROXY_PORT=$(find_proxy_port)
-PROXY_URL="http://127.0.0.1:${PROXY_PORT}"
-NO_PROXY_LIST="localhost,127.0.0.1,::1"
-
-ensure_shell_present() {
-  if [ ! -x "$SHELL_BIN" ]; then
-    echo "Cannot determine interactive shell (SHELL=$SHELL_BIN)." >&2
-    exit 1
+    echo "Proxy disabled."
   fi
 }
 
-write_state() {
-  printf '%s\n' "$1" > "$STATE_FILE"
+enable_proxy() {
+  if is_proxy_enabled; then
+    echo "Proxy already enabled."
+    print_proxy_summary || true
+    return
+  fi
+  capture_current_env
+  write_state_file
+  apply_proxy_env
+  print_proxy_summary || true
+  echo "Proxy variables exported in this shell."
 }
 
-remove_state() {
+restore_proxy() {
+  if ! read_state_file; then
+    echo "Proxy already disabled."
+    return
+  fi
+  restore_from_backup
   rm -f "$STATE_FILE"
+  echo "Proxy variables removed."
 }
 
-launch_shell_with_env() {
-  if [ -t 0 ] && [ -t 1 ]; then
-    exec env \
-      http_proxy="$PROXY_URL" \
-      HTTP_PROXY="$PROXY_URL" \
-      https_proxy="$PROXY_URL" \
-      HTTPS_PROXY="$PROXY_URL" \
-      all_proxy="$PROXY_URL" \
-      ALL_PROXY="$PROXY_URL" \
-      ftp_proxy="$PROXY_URL" \
-      FTP_PROXY="$PROXY_URL" \
-      no_proxy="$NO_PROXY_LIST" \
-      NO_PROXY="$NO_PROXY_LIST" \
-      HIDDIFY_PROXY="on" \
-      "$SHELL_BIN" -l
-  else
-    echo "Proxy enabled. Launch an interactive shell to pick up the settings." >&2
+main() {
+  capture_current_env >/dev/null 2>&1 || true
+
+  if [[ ${1:-} == "--status" ]]; then
+    show_status
+    return
   fi
-}
 
-launch_shell_without_env() {
-  if [ -t 0 ] && [ -t 1 ]; then
-    exec env \
-      -u http_proxy -u HTTP_PROXY \
-      -u https_proxy -u HTTPS_PROXY \
-      -u all_proxy -u ALL_PROXY \
-      -u ftp_proxy -u FTP_PROXY \
-      -u no_proxy -u NO_PROXY \
-      -u HIDDIFY_PROXY \
-      "$SHELL_BIN" -l
+  if [[ "$PRIME_MODE" == "1" ]]; then
+    prime_proxy
+    return
+  fi
+
+  if is_proxy_enabled; then
+    echo "Disabling proxy..."
+    restore_proxy
   else
-    echo "Proxy disabled. Launch a new shell to continue without proxy." >&2
+    echo "Enabling proxy on $PROXY_URL ..."
+    enable_proxy
   fi
 }
 
-ensure_shell_present
-
-CURRENT_STATE=0
-[[ -f "$STATE_FILE" ]] && CURRENT_STATE=1
-
-if [[ "$PRIME_MODE" = "1" ]]; then
-  print_proxy_summary || true
-  if [[ $CURRENT_STATE -eq 1 ]]; then
-    echo "Proxy already enabled; leaving existing state."
-  else
-    echo "Proxy check complete; proxy remains disabled. Use 'set-proxy' to enable when needed."
-  fi
-  exit 0
-fi
-
-if [ -f "$STATE_FILE" ]; then
-  echo "Disabling proxy..."
-  remove_state
-  if [ "$NON_INTERACTIVE" = "1" ]; then
-    echo "Proxy entries removed."
-    exit 0
-  fi
-  launch_shell_without_env
-else
-  echo "Enabling proxy on $PROXY_URL ..."
-  write_state "on"
-  print_proxy_summary || true
-  if [ "$NON_INTERACTIVE" = "1" ]; then
-    echo "Proxy entries staged for 127.0.0.1:$PROXY_PORT. Run 'set-proxy' to toggle interactively."
-    exit 0
-  fi
-  launch_shell_with_env
-fi
+main "$@"
