@@ -10,6 +10,7 @@ This repository ships the Hiddify CLI binary together with a prebuilt Docker ima
 - `.env.example` – template for the required environment values. Copy to `.env` and edit before running.
 - `image/hiddify-cli-offline.tar.xz` – exported Docker image (xz-compressed) ready to load in air-gapped environments.
 - `load-image.sh` – helper that loads the exported image with `docker load`.
+- `set-proxy.sh` – toggles local proxy environment variables for interactive shells.
 
 ## Usage
 1. `cp .env.example .env` and set `SUBSCRIPTION_URL` (and adjust the proxy port if needed).
@@ -17,3 +18,7 @@ This repository ships the Hiddify CLI binary together with a prebuilt Docker ima
 3. `docker compose up -d` to start the proxy service.
 
 The compose file publishes only the proxy port using the value from `.env`. Optional environment variables let you tune the self-healing monitor (check interval, failure threshold, health probe URL, restart grace).
+
+### Proxy toggle helper
+
+Run `./set-proxy.sh` to launch a new interactive shell with `http_proxy`, `https_proxy`, and related variables pointing at the local Hiddify proxy. Run it again inside that shell to drop the settings and continue without a proxy.
