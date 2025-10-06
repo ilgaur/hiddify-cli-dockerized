@@ -20,6 +20,19 @@ ALIAS_LINE="alias set-proxy='bash $ROOT_DIR/scripts/set-proxy.sh'"
 declare -a alias_targets=()
 docker_group_notice=""
 
+get_repo_group() {
+  id -gn "$REPO_USER" 2>/dev/null || echo "$REPO_USER"
+}
+
+set_owner_if_needed() {
+  local path="$1"
+  if [[ "$REPO_USER" != "root" && -e "$path" ]]; then
+    local group
+    group=$(get_repo_group)
+    chown "$REPO_USER":"$group" "$path" 2>/dev/null || true
+  fi
+}
+
 info() { printf '[setup] %s\n' "$*"; }
 warn() { printf '[setup][warn] %s\n' "$*" >&2; }
 require_file() { [[ -f "$1" ]] || { warn "Required file missing: $1"; exit 1; }; }
@@ -63,6 +76,7 @@ set_env_value() {
   fi
   mv "$tmp" "$ENV_FILE"
   trap - RETURN
+  set_owner_if_needed "$ENV_FILE"
 }
 
 prompt_value() {
@@ -88,11 +102,7 @@ ensure_alias_line() {
   local target="$1"
   if [[ ! -e "$target" ]]; then
     touch "$target"
-    if [[ "$REPO_USER" != "root" ]]; then
-      local group_name
-      group_name=$(id -gn "$REPO_USER" 2>/dev/null || echo "$REPO_USER")
-      chown "$REPO_USER":"$group_name" "$target" 2>/dev/null || true
-    fi
+    set_owner_if_needed "$target"
   fi
   if ! grep -Fqx "$ALIAS_LINE" "$target" 2>/dev/null; then
     printf '\n%s\n' "$ALIAS_LINE" >> "$target"
@@ -137,6 +147,7 @@ ensure_image_loaded() {
     ensure_executable "$ROOT_DIR/scripts/load-image.sh"
     "$ROOT_DIR/scripts/load-image.sh"
     echo "$current_hash" > "$HASH_RECORD"
+    set_owner_if_needed "$HASH_RECORD"
   else
     info "Bundled Docker image already matches the loaded version."
   fi
@@ -147,6 +158,7 @@ configure_env_file() {
     info "Creating .env from template."
     require_file "$ENV_TEMPLATE"
     cp "$ENV_TEMPLATE" "$ENV_FILE"
+    set_owner_if_needed "$ENV_FILE"
   fi
 
   local sub_default
@@ -267,6 +279,7 @@ summarise() {
 main() {
   cd "$ROOT_DIR"
   mkdir -p "$STATE_DIR"
+  set_owner_if_needed "$STATE_DIR"
   ensure_executable "$ROOT_DIR/scripts/set-proxy.sh"
   ensure_executable "$ROOT_DIR/scripts/load-image.sh"
   ensure_executable "$ROOT_DIR/scripts/install-docker.sh"

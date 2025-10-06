@@ -2,7 +2,8 @@
 set -euo pipefail
 
 REPO_URL="${HIDDIFY_REPO_URL:-https://github.com/ilgaur/hiddify-cli-dockerized.git}"
-ARCHIVE_URL="${HIDDIFY_REPO_ARCHIVE_URL:-https://github.com/ilgaur/hiddify-cli-dockerized/archive/refs/heads/main.tar.gz}"
+BRANCH="${HIDDIFY_INSTALL_BRANCH:-main}"
+ARCHIVE_URL="${HIDDIFY_REPO_ARCHIVE_URL:-https://github.com/ilgaur/hiddify-cli-dockerized/archive/refs/heads/${BRANCH}.tar.gz}"
 DEFAULT_DIR="${HIDDIFY_INSTALL_DIR:-$HOME/hiddify-cli-dockerized}"
 SKIP_SETUP="${HIDDIFY_INSTALLER_NO_SETUP:-0}"
 
@@ -34,8 +35,10 @@ else
   if [[ -d "$repo_dir/.git" ]]; then
     info "Repository already cloned at $repo_dir; updating..."
     if command -v git >/dev/null 2>&1; then
-      if ! git -C "$repo_dir" pull --ff-only; then
-        warn "Unable to update repository automatically. Please resolve git state manually."
+      if ! git -C "$repo_dir" fetch --depth 1 origin "$BRANCH"; then
+        warn "Failed to fetch latest changes. Please check network connectivity."
+      elif ! git -C "$repo_dir" reset --hard "origin/$BRANCH"; then
+        warn "Unable to reset repository to origin/$BRANCH automatically."
       fi
     else
       warn "git not available to update existing repository; continuing with current contents."
@@ -52,7 +55,7 @@ else
   else
     if command -v git >/dev/null 2>&1; then
       info "Cloning repository into $repo_dir ..."
-      git clone "$REPO_URL" "$repo_dir"
+      git clone --depth 1 --branch "$BRANCH" --single-branch "$REPO_URL" "$repo_dir"
     else
       warn "git not found; falling back to tarball download."
       if ! command -v curl >/dev/null 2>&1; then
