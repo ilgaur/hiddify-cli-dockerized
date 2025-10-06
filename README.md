@@ -9,26 +9,27 @@ This repository ships the Hiddify CLI binary together with a prebuilt Docker ima
 - `docker-compose.yml` – runs the CLI container using local environment settings.
 - `.env.example` – template for the required environment values. Copy to `.env` and edit before running.
 - `image/hiddify-cli-offline.tar.xz` – exported Docker image (xz-compressed) ready to load in air-gapped environments.
-- `load-image.sh` – helper that loads the exported image with `docker load`.
+- `scripts/install.sh` – curl-install entrypoint that bootstraps the repo and runs setup.
+- `scripts/setup.sh` – interactive bootstrapper that wires everything together.
+- `scripts/load-image.sh` – helper that loads the exported image with `docker load`.
 - `docker-bin/` – static Docker Engine and Compose binaries for offline installation.
-- `install-docker.sh` – installs the bundled Docker binaries onto the host.
-- `setup.sh` – interactive bootstrapper that wires everything together.
-- `set-proxy.sh` – toggles local proxy environment variables for interactive shells.
+- `scripts/install-docker.sh` – installs the bundled Docker binaries onto the host.
+- `scripts/set-proxy.sh` – toggles local proxy environment variables for interactive shells.
 
 ## Quick start
 
 Run the automated bootstrapper:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ilgaur/hiddify-cli-dockerized/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ilgaur/hiddify-cli-dockerized/main/scripts/install.sh | bash
 ```
 
-The installer checks out this repository (defaults to `~/hiddify-cli-dockerized`), keeps it up to date, and invokes the local `setup.sh` with sudo.
+The installer checks out this repository (defaults to `~/hiddify-cli-dockerized`), keeps it up to date, and invokes the local `scripts/setup.sh` with sudo.
 
 Already have the repo on disk? Run the setup directly:
 
 ```bash
-sudo ./setup.sh
+sudo ./scripts/setup.sh
 ```
 
 It will:
@@ -41,15 +42,15 @@ It will:
 
 ## Manual usage
 1. `cp .env.example .env` and set `SUBSCRIPTION_URL` (and adjust the proxy port if needed).
-2. `./load-image.sh` to import the bundled image (run once per host). The script auto-detects `.tar.xz` archives and pipes them into `docker load`.
+2. `./scripts/load-image.sh` to import the bundled image (run once per host). The script auto-detects `.tar.xz` archives and pipes them into `docker load`.
 3. `docker compose up -d` to start the proxy service.
 
 The compose file publishes only the proxy port using the value from `.env`. Optional environment variables let you tune the self-healing monitor (check interval, failure threshold, health probe URL, restart grace).
 
 ### Proxy toggle helper
 
-Run `./set-proxy.sh` to launch a new interactive shell with `http_proxy`, `https_proxy`, and related variables pointing at the local Hiddify proxy. The script verifies connectivity and prints the observed exit IP/location. Run it again inside that shell to drop the settings and continue without a proxy.
+Run `./scripts/set-proxy.sh` to launch a new interactive shell with `http_proxy`, `https_proxy`, and related variables pointing at the local Hiddify proxy. The script verifies connectivity and prints the observed exit IP/location. Run it again inside that shell to drop the settings and continue without a proxy.
 
 ### Installing Docker offline
 
-If the target machine lacks Docker, copy this repository and run `sudo ./install-docker.sh`. The script installs the static `docker` CLI, daemon, Compose plugin (including a `docker-compose` shim) from `docker-bin/` into `/usr/local`, provisions matching systemd units, enables/starts both containerd and Docker (mirroring the official convenience script), and adds the invoking user to the `docker` group when possible. On systems without systemd the script prints a reminder to start the daemons manually.
+If the target machine lacks Docker, copy this repository and run `sudo ./scripts/install-docker.sh`. The script installs the static `docker` CLI, daemon, Compose plugin (including a `docker-compose` shim) from `docker-bin/` into `/usr/local`, provisions matching systemd units, enables/starts both containerd and Docker (mirroring the official convenience script), and adds the invoking user to the `docker` group when possible. On systems without systemd the script prints a reminder to start the daemons manually.

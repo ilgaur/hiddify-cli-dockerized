@@ -2,7 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-STATE_FILE="$SCRIPT_DIR/.proxy-state"
+ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
+STATE_FILE="$ROOT_DIR/.proxy-state"
 
 SHELL_BIN="${SHELL:-/bin/bash}"
 NON_INTERACTIVE="${HIDDIFY_PROXY_NONINTERACTIVE:-0}"
@@ -67,7 +68,7 @@ find_proxy_port() {
     port="$PROXY_PORT"
   else
     port=""
-    for candidate in "$SCRIPT_DIR/.env" "$SCRIPT_DIR/.env.example"; do
+    for candidate in "$ROOT_DIR/.env" "$ROOT_DIR/.env.example"; do
       if [ -z "$port" ] && [ -f "$candidate" ]; then
         value=$(grep -E '^PROXY_PORT=' "$candidate" | tail -n 1 | cut -d '=' -f2-)
         if [ -n "$value" ]; then

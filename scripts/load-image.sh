@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ARCHIVE_DIR="image"
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
+ARCHIVE_DIR="$ROOT_DIR/image"
 BASE_NAME="hiddify-cli-offline.tar"
 XZ_ARCHIVE="${ARCHIVE_DIR}/${BASE_NAME}.xz"
 TAR_ARCHIVE="${ARCHIVE_DIR}/${BASE_NAME}"

@@ -7,7 +7,8 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-ASSETS_DIR="$SCRIPT_DIR/docker-bin"
+ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
+ASSETS_DIR="$ROOT_DIR/docker-bin"
 DOCKER_TGZ=$(ls "$ASSETS_DIR"/docker-*.tgz 2>/dev/null | head -n 1)
 COMPOSE_BIN=$(ls "$ASSETS_DIR"/docker-compose-*-linux-x86_64 2>/dev/null | head -n 1)
 

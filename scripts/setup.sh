@@ -7,15 +7,16 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-STATE_DIR="$SCRIPT_DIR/.state"
-IMAGE_PATH="$SCRIPT_DIR/image/hiddify-cli-offline.tar.xz"
+ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
+STATE_DIR="$ROOT_DIR/.state"
+IMAGE_PATH="$ROOT_DIR/image/hiddify-cli-offline.tar.xz"
 HASH_RECORD="$STATE_DIR/hiddify-image.sha256"
-ENV_FILE="$SCRIPT_DIR/.env"
-ENV_TEMPLATE="$SCRIPT_DIR/.env.example"
+ENV_FILE="$ROOT_DIR/.env"
+ENV_TEMPLATE="$ROOT_DIR/.env.example"
 REPO_USER="${SUDO_USER:-root}"
 REPO_USER_HOME=$(getent passwd "$REPO_USER" | cut -d: -f6 || true)
-[[ -z "$REPO_USER_HOME" ]] && REPO_USER_HOME="$SCRIPT_DIR"
-ALIAS_LINE="alias set-proxy='bash $SCRIPT_DIR/set-proxy.sh'"
+[[ -z "$REPO_USER_HOME" ]] && REPO_USER_HOME="$ROOT_DIR"
+ALIAS_LINE="alias set-proxy='bash $ROOT_DIR/scripts/set-proxy.sh'"
 declare -a alias_targets=()
 docker_group_notice=""
 
@@ -104,9 +105,9 @@ ensure_docker() {
     info "Docker already present."
   else
     info "Docker not detected. Running install-docker.sh ..."
-    require_file "$SCRIPT_DIR/install-docker.sh"
-    ensure_executable "$SCRIPT_DIR/install-docker.sh"
-    "$SCRIPT_DIR/install-docker.sh"
+    require_file "$ROOT_DIR/scripts/install-docker.sh"
+    ensure_executable "$ROOT_DIR/scripts/install-docker.sh"
+    "$ROOT_DIR/scripts/install-docker.sh"
   fi
 
   if [[ "$REPO_USER" != "root" ]] && command -v usermod >/dev/null 2>&1; then
@@ -133,8 +134,8 @@ ensure_image_loaded() {
   fi
   if [[ $need_load -eq 1 ]]; then
     info "Loading bundled Docker image ..."
-    ensure_executable "$SCRIPT_DIR/load-image.sh"
-    "$SCRIPT_DIR/load-image.sh"
+    ensure_executable "$ROOT_DIR/scripts/load-image.sh"
+    "$ROOT_DIR/scripts/load-image.sh"
     echo "$current_hash" > "$HASH_RECORD"
   else
     info "Bundled Docker image already matches the loaded version."
@@ -227,16 +228,16 @@ deploy_stack() {
 }
 
 enable_proxy_toggle() {
-  if [[ -x "$SCRIPT_DIR/set-proxy.sh" ]]; then
+  if [[ -x "$ROOT_DIR/scripts/set-proxy.sh" ]]; then
     echo
     if [[ -t 0 && -t 1 ]]; then
       info "Opening a proxied shell for $REPO_USER (exit to continue)."
-      if ! run_as_user "$REPO_USER" "$SCRIPT_DIR/set-proxy.sh"; then
+      if ! run_as_user "$REPO_USER" "$ROOT_DIR/scripts/set-proxy.sh"; then
         warn "Unable to launch proxied shell for $REPO_USER. Run 'set-proxy' manually."
       fi
     else
       info "Non-interactive session detected; priming proxy toggle for $REPO_USER."
-      if ! run_as_user "$REPO_USER" env HIDDIFY_PROXY_NONINTERACTIVE=1 bash "$SCRIPT_DIR/set-proxy.sh"; then
+      if ! run_as_user "$REPO_USER" env HIDDIFY_PROXY_NONINTERACTIVE=1 bash "$ROOT_DIR/scripts/set-proxy.sh"; then
         warn "Unable to prime proxy toggle for $REPO_USER. Run 'set-proxy' manually."
       fi
     fi
@@ -264,13 +265,13 @@ summarise() {
 }
 
 main() {
-  cd "$SCRIPT_DIR"
+  cd "$ROOT_DIR"
   mkdir -p "$STATE_DIR"
-  ensure_executable "$SCRIPT_DIR/set-proxy.sh"
-  ensure_executable "$SCRIPT_DIR/load-image.sh"
-  ensure_executable "$SCRIPT_DIR/install-docker.sh"
-  ensure_executable "$SCRIPT_DIR/entrypoint.sh"
-  ensure_executable "$SCRIPT_DIR/HiddifyCli"
+  ensure_executable "$ROOT_DIR/scripts/set-proxy.sh"
+  ensure_executable "$ROOT_DIR/scripts/load-image.sh"
+  ensure_executable "$ROOT_DIR/scripts/install-docker.sh"
+  ensure_executable "$ROOT_DIR/entrypoint.sh"
+  ensure_executable "$ROOT_DIR/HiddifyCli"
   configure_env_file
   ensure_docker
   ensure_image_loaded

@@ -16,10 +16,14 @@ cleanup_tmp() {
 
 local_repo_dir=""
 if [[ -n "${BASH_SOURCE[0]:-}" && "${BASH_SOURCE[0]}" != "stdin" && "${BASH_SOURCE[0]}" != "-" ]]; then
-  local_repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  candidate_root=$(cd "$script_dir/.." && pwd)
+  if [[ -f "$candidate_root/scripts/setup.sh" ]]; then
+    local_repo_dir="$candidate_root"
+  fi
 fi
 
-if [[ -n "$local_repo_dir" && -f "$local_repo_dir/setup.sh" ]]; then
+if [[ -n "$local_repo_dir" ]]; then
   info "Using existing repository at $local_repo_dir"
   repo_dir="$local_repo_dir"
 else
@@ -36,7 +40,7 @@ else
     else
       warn "git not available to update existing repository; continuing with current contents."
     fi
-  elif [[ -d "$repo_dir" && -e "$repo_dir/setup.sh" ]]; then
+  elif [[ -d "$repo_dir" && -e "$repo_dir/scripts/setup.sh" ]]; then
     info "Using existing directory at $repo_dir."
   elif [[ -d "$repo_dir" ]]; then
     if [[ -z "$(ls -A "$repo_dir" 2>/dev/null)" ]]; then
@@ -85,12 +89,12 @@ if [[ "${SKIP_SETUP}" == "1" ]]; then
   exit 0
 fi
 
-setup_script="$repo_dir/setup.sh"
+setup_script="$repo_dir/scripts/setup.sh"
 if [[ ! -x "$setup_script" ]]; then
   if [[ -f "$setup_script" ]]; then
     chmod +x "$setup_script"
   else
-    warn "setup.sh not found in $repo_dir."
+    warn "scripts/setup.sh not found in $repo_dir."
     exit 1
   fi
 fi
