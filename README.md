@@ -2,20 +2,6 @@
 
 This repository ships the Hiddify CLI binary together with a prebuilt Docker image so that the stack can run without reaching the Docker hub.
 
-## Files
-- `HiddifyCli` – the upstream CLI executable bundled into the image.
-- `Dockerfile` – minimal Debian-based image definition kept for reference.
-- `entrypoint.sh` – runs the CLI, watches connectivity, and exposes it on all interfaces via `socat`.
-- `docker-compose.yml` – runs the CLI container using local environment settings.
-- `.env.example` – template for the required environment values. Copy to `.env` and edit before running.
-- `image/hiddify-cli-offline.tar.xz` – exported Docker image (xz-compressed) ready to load in air-gapped environments.
-- `scripts/install.sh` – curl-install entrypoint that bootstraps the repo and runs setup.
-- `scripts/setup.sh` – interactive bootstrapper that wires everything together.
-- `scripts/load-image.sh` – helper that loads the exported image with `docker load`.
-- `docker-bin/` – static Docker Engine and Compose binaries for offline installation.
-- `scripts/install-docker.sh` – installs the bundled Docker binaries onto the host.
-- `scripts/set-proxy.sh` – toggles local proxy environment variables for interactive shells.
-
 ## Quick start
 
 Run the automated bootstrapper:
