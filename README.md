@@ -10,6 +10,8 @@ This repository ships the Hiddify CLI binary together with a prebuilt Docker ima
 - `.env.example` – template for the required environment values. Copy to `.env` and edit before running.
 - `image/hiddify-cli-offline.tar.xz` – exported Docker image (xz-compressed) ready to load in air-gapped environments.
 - `load-image.sh` – helper that loads the exported image with `docker load`.
+- `docker-bin/` – static Docker Engine and Compose binaries for offline installation.
+- `install-docker.sh` – installs the bundled Docker binaries onto the host.
 - `set-proxy.sh` – toggles local proxy environment variables for interactive shells.
 
 ## Usage
@@ -22,3 +24,7 @@ The compose file publishes only the proxy port using the value from `.env`. Opti
 ### Proxy toggle helper
 
 Run `./set-proxy.sh` to launch a new interactive shell with `http_proxy`, `https_proxy`, and related variables pointing at the local Hiddify proxy. Run it again inside that shell to drop the settings and continue without a proxy.
+
+### Installing Docker offline
+
+If the target machine lacks Docker, copy this repository and run `sudo ./install-docker.sh`. The script installs the static `docker` CLI, daemon, and Compose plugin from `docker-bin/` into `/usr/local`, provisions matching systemd units, and enables/starts both containerd and Docker (mirroring the official convenience script). On systems without systemd the script prints a reminder to start the daemons manually.
