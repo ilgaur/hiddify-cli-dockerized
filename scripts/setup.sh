@@ -17,6 +17,7 @@ REPO_USER="${SUDO_USER:-root}"
 REPO_USER_HOME=$(getent passwd "$REPO_USER" | cut -d: -f6 || true)
 [[ -z "$REPO_USER_HOME" ]] && REPO_USER_HOME="$ROOT_DIR"
 SET_PROXY_MARKER="set-proxy() {"
+AUTO_ENABLE_FILE="$STATE_DIR/auto-enable-proxy"
 declare -a alias_targets=()
 docker_group_notice=""
 
@@ -246,8 +247,19 @@ setup_aliases() {
 set-proxy() {
   . "%ROOT_DIR%/scripts/set-proxy.sh" "\$@"
 }
+
+if [[ -z ${HIDDIFY_PROXY_FN_LOADED:-} ]]; then
+  export HIDDIFY_PROXY_FN_LOADED=1
+  if [[ -f "%AUTO_ENABLE_FILE%" ]]; then
+    rm -f "%AUTO_ENABLE_FILE%"
+    set-proxy || true
+  else
+    set-proxy --status >/dev/null 2>&1 || true
+  fi
+fi
 EOF_BLOCK
   set_proxy_block=${set_proxy_block//%ROOT_DIR%/$ROOT_DIR}
+  set_proxy_block=${set_proxy_block//%AUTO_ENABLE_FILE%/$AUTO_ENABLE_FILE}
 
   local user_files=("$REPO_USER_HOME/.bashrc" "$REPO_USER_HOME/.profile" "$REPO_USER_HOME/.bash_profile" "$REPO_USER_HOME/.zshrc")
   for file in "${user_files[@]}"; do
@@ -257,11 +269,24 @@ EOF_BLOCK
 
   read -r -d '' set_proxy_profile <<'EOF_PROFILE' || true
 #!/bin/sh
-set-proxy() {
-  . "%ROOT_DIR%/scripts/set-proxy.sh" "\$@"
-}
+if [ -n "$BASH_VERSION" ] || [ -n "$ZSH_VERSION" ]; then
+  set-proxy() {
+    . "%ROOT_DIR%/scripts/set-proxy.sh" "\$@"
+  }
+
+  if [ -z "${HIDDIFY_PROXY_FN_LOADED:-}" ]; then
+    export HIDDIFY_PROXY_FN_LOADED=1
+    if [ -f "%AUTO_ENABLE_FILE%" ]; then
+      rm -f "%AUTO_ENABLE_FILE%"
+      set-proxy || true
+    else
+      set-proxy --status >/dev/null 2>&1 || true
+    fi
+  fi
+fi
 EOF_PROFILE
   set_proxy_profile=${set_proxy_profile//%ROOT_DIR%/$ROOT_DIR}
+  set_proxy_profile=${set_proxy_profile//%AUTO_ENABLE_FILE%/$AUTO_ENABLE_FILE}
 
   if [[ -d /etc/profile.d ]]; then
     local profile_script="/etc/profile.d/hiddify-proxy.sh"
@@ -328,6 +353,7 @@ summarise() {
     echo "Alias 'set-proxy' already present."
   fi
   echo "Use 'set-proxy' (shell function) to toggle the local proxy in your shells."
+  echo "Open a new shell or run 'exec $SHELL -l' to pick up the function immediately."
   echo "You can check the stack with 'docker compose ps'."
 }
 
@@ -345,6 +371,8 @@ main() {
   ensure_image_loaded
   deploy_stack
   setup_aliases
+  touch "$AUTO_ENABLE_FILE"
+  set_owner_if_needed "$AUTO_ENABLE_FILE"
   install_proxy_command
   enable_proxy_toggle
   summarise

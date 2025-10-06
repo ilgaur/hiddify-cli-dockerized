@@ -114,3 +114,8 @@ else
     exit 1
   fi
 fi
+
+if tty -s && [[ -n ${SHELL:-} ]] && [[ "${HIDDIFY_INSTALLER_NO_RELOAD:-0}" != "1" ]]; then
+  info "Reloading your shell to apply proxy helpers ..."
+  exec "$SHELL" -l
+fi

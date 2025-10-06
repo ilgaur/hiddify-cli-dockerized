@@ -37,7 +37,7 @@ It will:
 - ensure the helper scripts are executable
 - collect the required environment values (subscription URL, ports, health-check tuning)
 - install Docker & Compose from `docker-bin/` when missing (and add you to the `docker` group)
-- load the bundled image, launch the stack, and register a `set-proxy` shell function system-wide
+- load the bundled image, launch the stack, and register a `set-proxy` shell function system-wide (your shell reloads automatically at the end)
 - prime the proxy toggle once so your next shell can use the local proxy immediately
 
 ## Manual usage
@@ -49,7 +49,7 @@ The compose file publishes only the proxy port using the value from `.env`. Opti
 
 ### Proxy toggle helper
 
-Run `set-proxy` (function sourced from your shell profile) to export the proxy variables in the current session. The helper verifies connectivity and prints the observed exit IP/location. Run it again to restore your previous proxy settings. For scripting, you can use `source ./scripts/set-proxy.sh --status` to inspect the current state.
+On the next shell after setup, the proxy is enabled automatically so you can confirm the exit IP straight away. Afterwards, run `set-proxy` (function loaded from your shell profile) to toggle the proxy on demand. For scripting or status checks, use `source ./scripts/set-proxy.sh --status`.
 
 ### Installing Docker offline
 

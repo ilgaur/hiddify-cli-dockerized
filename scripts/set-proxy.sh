@@ -4,6 +4,11 @@ if [[ ${BASH_SOURCE[0]:-} == "$0" ]]; then
   exit 1
 fi
 
+if [[ -z ${BASH_VERSION:-} ]]; then
+  echo "set-proxy requires bash." >&2
+  return 1
+fi
+
 SCRIPT_DIR=$(cd "$(dirname "$BASH_SOURCE")" && pwd)
 ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 STATE_FILE="$ROOT_DIR/.proxy-state"
