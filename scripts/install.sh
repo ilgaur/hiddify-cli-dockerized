@@ -115,11 +115,41 @@ else
   fi
 fi
 
-if [[ "${HIDDIFY_INSTALLER_NO_RELOAD:-0}" != "1" ]] && [[ -n ${SHELL:-} ]]; then
-  if { exec </dev/tty && exec >/dev/tty && exec 2>/dev/tty; } 2>/dev/null; then
-    info "Reloading your shell to apply proxy helpers ..."
-    exec "$SHELL" -l
-  else
-    info "Shell helpers installed. Run 'exec $SHELL -l' to enable them in this session."
+refresh_current_shell() {
+  [[ "${HIDDIFY_INSTALLER_NO_RELOAD:-0}" == "1" ]] && return
+
+  local helper="/etc/profile.d/hiddify-proxy.sh"
+  if [[ ! -r "$helper" ]]; then
+    info "Shell helpers installed. Run 'exec ${SHELL:-bash} -l' to enable them in this session."
+    return
   fi
-fi
+
+  local command="[ -r $helper ] && . $helper && command -v set-proxy >/dev/null 2>&1 && set-proxy --status || true"
+  local tty_candidates=()
+  local tty_path
+
+  tty_path=$( (tty) 2>/dev/null || true )
+  if [[ -n "$tty_path" && "$tty_path" != "not a tty" ]]; then
+    tty_candidates+=("$tty_path")
+  fi
+
+  if [[ -r /dev/tty && -w /dev/tty ]]; then
+    tty_candidates+=("/dev/tty")
+  fi
+
+  if ((${#tty_candidates[@]} == 0)); then
+    info "Shell helpers installed. Run 'source $helper' to enable them in this session."
+    return
+  fi
+
+  info "Loading proxy helper into the current shell ..."
+  for tty_path in "${tty_candidates[@]}"; do
+    if [[ -w "$tty_path" ]]; then
+      printf '\n%s\n' "$command" > "$tty_path" 2>/dev/null && return
+    fi
+  done
+
+  info "Shell helpers installed. Run 'source $helper' to enable them in this session."
+}
+
+refresh_current_shell
