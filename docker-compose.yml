@@ -1,0 +1,13 @@
+services:
+  hiddify:
+    image: local/hiddify-cli-offline:latest
+    container_name: hiddify-cli
+    env_file:
+      - .env
+    command:
+      - run
+      - -c
+      - ${SUBSCRIPTION_URL:?Set SUBSCRIPTION_URL in the .env file}
+    ports:
+      - "${PROXY_PORT:-12334}:${PROXY_PORT:-12334}"
+    restart: unless-stopped

@@ -1,0 +1,8 @@
+.env
+*.log
+*.tmp
+*/.DS_Store
+# Runtime data directories (created on first run)
+data/
+tmp/
+webui/
