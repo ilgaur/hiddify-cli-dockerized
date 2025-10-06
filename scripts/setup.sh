@@ -322,6 +322,10 @@ deploy_stack() {
 enable_proxy_toggle() {
   if [[ -x "$ROOT_DIR/scripts/set-proxy.sh" ]]; then
     echo
+    info "Verifying proxy reachability for $REPO_USER ..."
+    if ! run_as_user "$REPO_USER" bash -lc "HIDDIFY_PROXY_PRIME=1 source '$ROOT_DIR/scripts/set-proxy.sh'"; then
+      warn "Unable to verify proxy connectivity for $REPO_USER. Run 'set-proxy' manually if needed."
+    fi
     if [[ -t 0 && -t 1 ]]; then
       info "Proxy helper primed; it will auto-enable once in your next shell."
     else

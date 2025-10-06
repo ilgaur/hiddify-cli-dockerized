@@ -116,23 +116,9 @@ else
 fi
 
 if [[ "${HIDDIFY_INSTALLER_NO_RELOAD:-0}" != "1" ]] && [[ -n ${SHELL:-} ]]; then
-  if [[ -t 0 || -t 1 ]]; then
-    reload_possible=1
-    if [[ ! -t 0 ]]; then
-      if [[ -r /dev/tty ]]; then
-        if ! exec </dev/tty; then
-          reload_possible=0
-        fi
-      else
-        reload_possible=0
-      fi
-    fi
-    if (( reload_possible )); then
-      info "Reloading your shell to apply proxy helpers ..."
-      exec "$SHELL" -l
-    else
-      info "Shell helpers installed. Run 'exec $SHELL -l' to enable them in this session."
-    fi
+  if { exec </dev/tty && exec >/dev/tty && exec 2>/dev/tty; } 2>/dev/null; then
+    info "Reloading your shell to apply proxy helpers ..."
+    exec "$SHELL" -l
   else
     info "Shell helpers installed. Run 'exec $SHELL -l' to enable them in this session."
   fi
