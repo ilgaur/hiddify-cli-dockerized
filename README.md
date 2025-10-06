@@ -1,4 +1,4 @@
-# Hiddify CLI Offline Bundle
+# Hiddify CLI Bundle
 
 This repository ships the Hiddify CLI binary together with a prebuilt Docker image so that the stack can run without reaching the Docker hub.
 
