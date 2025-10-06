@@ -124,7 +124,7 @@ refresh_current_shell() {
     return
   fi
 
-  local command="[ -r $helper ] && . $helper && command -v set-proxy >/dev/null 2>&1 && set-proxy --status || true"
+  local command="[ -r $helper ] && . $helper && command -v set-proxy >/dev/null 2>&1 && { HIDDIFY_PROXY_PRIME=1 set-proxy || true; set-proxy --status; } || true"
   local tty_candidates=()
   local tty_path
 
