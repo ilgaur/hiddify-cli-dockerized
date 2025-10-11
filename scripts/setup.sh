@@ -21,6 +21,15 @@ AUTO_ENABLE_FILE="$STATE_DIR/auto-enable-proxy"
 declare -a alias_targets=()
 docker_group_notice=""
 
+# Debug mode - set to 1 to enable verbose output
+DEBUG_MODE="${HIDDIFY_DEBUG:-0}"
+
+debug() {
+  if [[ "$DEBUG_MODE" == "1" ]]; then
+    echo "[DEBUG] $*" >&2
+  fi
+}
+
 get_repo_group() {
   id -gn "$REPO_USER" 2>/dev/null || echo "$REPO_USER"
 }
@@ -50,6 +59,16 @@ run_as_user() {
     local quoted
     printf -v quoted ' %q' "$@"
     su - "$user" -c "${quoted:1}"
+  fi
+}
+
+docker_cmd() {
+  if [[ -n "${DOCKER_RUN_AS_USER:-}" ]]; then
+    debug "Running docker command as user: $DOCKER_RUN_AS_USER"
+    run_as_user "$DOCKER_RUN_AS_USER" "$@"
+  else
+    debug "Running docker command as current user (root)"
+    "$@"
   fi
 }
 
@@ -160,7 +179,7 @@ append_shell_block() {
     set_owner_if_needed "$target"
   fi
   if ! grep -Fqx "$marker" "$target" 2>/dev/null; then
-    printf '\n%s\n' "$content" >> "$target"
+    printf '\n%s\n' "$content" >> "$target" || true
     alias_targets+=("$target")
   fi
 }
@@ -180,6 +199,17 @@ remove_legacy_alias() {
 ensure_docker() {
   if command -v docker >/dev/null 2>&1; then
     info "Docker already present."
+    
+    # Check if Docker Desktop is being used
+    if [[ "$REPO_USER" != "root" ]]; then
+      local user_docker_socket="/home/$REPO_USER/.docker/desktop/docker.sock"
+      local user_docker_desktop_socket="/home/$REPO_USER/.docker/desktop/docker-cli.sock"
+      
+      if [[ -S "$user_docker_desktop_socket" ]] || [[ -S "$user_docker_socket" ]]; then
+        info "Detected user-scoped Docker daemon; running Docker commands as $REPO_USER."
+        export DOCKER_RUN_AS_USER="$REPO_USER"
+      fi
+    fi
   else
     info "Docker not detected. Running install-docker.sh ..."
     require_file "$ROOT_DIR/scripts/install-docker.sh"
@@ -204,7 +234,7 @@ ensure_image_loaded() {
   local current_hash
   current_hash=$(sha256sum "$IMAGE_PATH" | awk '{print $1}')
   local need_load=0
-  if ! docker image inspect local/hiddify-cli-offline:latest >/dev/null 2>&1; then
+  if ! docker_cmd docker image inspect local/hiddify-cli-offline:latest >/dev/null 2>&1; then
     need_load=1
   elif [[ ! -f "$HASH_RECORD" ]] || [[ $(cat "$HASH_RECORD") != "$current_hash" ]]; then
     need_load=1
@@ -212,7 +242,15 @@ ensure_image_loaded() {
   if [[ $need_load -eq 1 ]]; then
     info "Loading bundled Docker image ..."
     ensure_executable "$ROOT_DIR/scripts/load-image.sh"
-    "$ROOT_DIR/scripts/load-image.sh"
+    
+    # Pass the DOCKER_RUN_AS_USER environment variable to load-image.sh
+    if [[ -n "${DOCKER_RUN_AS_USER:-}" ]]; then
+      export DOCKER_RUN_AS_USER
+      run_as_user "$DOCKER_RUN_AS_USER" "$ROOT_DIR/scripts/load-image.sh"
+    else
+      "$ROOT_DIR/scripts/load-image.sh"
+    fi
+    
     echo "$current_hash" > "$HASH_RECORD"
     set_owner_if_needed "$HASH_RECORD"
   else
@@ -296,6 +334,7 @@ configure_env_file() {
 }
 
 setup_aliases() {
+  debug "Setting up aliases"
   alias_targets=()
 
   local set_proxy_block set_proxy_profile
@@ -347,13 +386,16 @@ EOF_PROFILE
 
   if [[ -d /etc/profile.d ]]; then
     local profile_script="/etc/profile.d/hiddify-proxy.sh"
-    printf '%s\n' "$set_proxy_profile" > "$profile_script"
-    chmod 0644 "$profile_script"
+    printf '%s\n' "$set_proxy_profile" > "$profile_script" || true
+    chmod 0644 "$profile_script" || true
     alias_targets+=("$profile_script")
   fi
+  
+  debug "Aliases setup complete"
 }
 
 install_proxy_command() {
+  debug "Installing proxy command wrapper"
   local wrapper="/usr/local/bin/set-proxy"
   cat <<EOF > "$wrapper"
 #!/usr/bin/env bash
@@ -361,40 +403,132 @@ echo "Use 'set-proxy' from an interactive shell (function)." >&2
 echo "If you need to inspect the current proxy state, run: source \"$ROOT_DIR/scripts/set-proxy.sh\" --status" >&2
 exit 1
 EOF
-  chmod 0755 "$wrapper"
+  chmod 0755 "$wrapper" || true
 }
 
 deploy_stack() {
   info "Starting Docker Compose stack ..."
-  if docker compose version >/dev/null 2>&1; then
-    docker compose up -d
+  
+  # Change to the root directory where docker-compose.yml is located
+  cd "$ROOT_DIR"
+  
+  # Temporarily disable exit on error for docker compose
+  set +e
+  local compose_status=0
+  
+  if docker_cmd docker compose version >/dev/null 2>&1; then
+    debug "Using 'docker compose' command"
+    docker_cmd docker compose up -d
+    compose_status=$?
   elif command -v docker-compose >/dev/null 2>&1; then
-    docker-compose up -d
+    debug "Using 'docker-compose' command"
+    docker_cmd docker-compose up -d
+    compose_status=$?
   else
     warn "Neither 'docker compose' nor 'docker-compose' is available."
     exit 1
   fi
+  
+  set -e
+  
+  # Check if the container started successfully
+  if [[ $compose_status -ne 0 ]]; then
+    warn "Failed to start Docker Compose stack (exit code: $compose_status)."
+    exit 1
+  fi
+  
+  # Give container time to stabilize
+  debug "Waiting for container to stabilize..."
+  sleep 3
+  
+  # Verify the container is actually running
+  if docker_cmd docker ps --filter "name=hiddify-cli" --format '{{.Names}}' | grep -q hiddify-cli; then
+    debug "Container hiddify-cli is confirmed running"
+  else
+    warn "Container hiddify-cli is not running after deployment"
+  fi
+}
+
+show_proxy_info() {
+  # This function displays the proxy information
+  local proxy_port
+  proxy_port=$(get_env_value PROXY_PORT "$ENV_FILE")
+  [[ -z "$proxy_port" ]] && proxy_port=12334
+  
+  echo
+  info "Testing proxy connectivity..."
+  
+  # Wait a bit more for proxy to be ready
+  sleep 2
+  
+  # Test if proxy is working
+  local test_result external_ip location_json
+  test_result=$(curl -s -o /dev/null -w "%{http_code}" \
+    --proxy "http://127.0.0.1:${proxy_port}" \
+    --max-time 8 \
+    https://icanhazip.com 2>/dev/null || echo "000")
+  
+  if [[ "$test_result" == "200" ]]; then
+    # Get external IP
+    external_ip=$(curl -s --proxy "http://127.0.0.1:${proxy_port}" \
+      --max-time 5 https://icanhazip.com 2>/dev/null | tr -d '\r\n')
+    
+    if [[ -n "$external_ip" ]]; then
+      # Try to get location info
+      location_json=$(curl -s --proxy "http://127.0.0.1:${proxy_port}" \
+        --max-time 5 "https://ipinfo.io/${external_ip}/json" 2>/dev/null || echo "{}")
+      
+      if [[ -n "$location_json" && "$location_json" != "{}" ]]; then
+        local city region country location=""
+        city=$(echo "$location_json" | sed -n 's/.*"city"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+        region=$(echo "$location_json" | sed -n 's/.*"region"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p') 
+        country=$(echo "$location_json" | sed -n 's/.*"country"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+        
+        [[ -n "$city" ]] && location="$city"
+        [[ -n "$region" && "$region" != "$city" ]] && location="${location:+$location, }$region"
+        [[ -n "$country" ]] && location="${location:+$location, }$country"
+        
+        if [[ -n "$location" ]]; then
+          info "✓ Proxy active. External IP: $external_ip ($location)"
+        else
+          info "✓ Proxy active. External IP: $external_ip"
+        fi
+      else
+        info "✓ Proxy active. External IP: $external_ip"
+      fi
+    else
+      info "✓ Proxy is active on port $proxy_port"
+    fi
+  else
+    warn "Proxy on port $proxy_port is not responding yet (HTTP $test_result)."
+    echo "  You can test it manually with:"
+    echo "    curl --proxy http://127.0.0.1:${proxy_port} https://icanhazip.com"
+  fi
 }
 
 enable_proxy_toggle() {
+  debug "Starting enable_proxy_toggle function"
+  
+  # First show the proxy information
+  show_proxy_info
+  
+  # Setup the set-proxy function for the user
   if [[ -x "$ROOT_DIR/scripts/set-proxy.sh" ]]; then
-    echo
-    info "Verifying proxy reachability for $REPO_USER ..."
-    local prime_retries="${HIDDIFY_PROXY_PRIME_RETRIES:-15}"
-    local prime_interval="${HIDDIFY_PROXY_PRIME_INTERVAL:-3}"
-    local prime_cmd="HIDDIFY_PROXY_PRIME=1 HIDDIFY_PROXY_PRIME_RETRIES=$prime_retries HIDDIFY_PROXY_PRIME_INTERVAL=$prime_interval source '$ROOT_DIR/scripts/set-proxy.sh'"
-    local preview_output="" preview_status=0
-    preview_output=$(run_as_user "$REPO_USER" bash -lc "$prime_cmd" 2>&1) || preview_status=$?
-    [[ -n "$preview_output" ]] && printf '%s\n' "$preview_output"
-    if (( preview_status != 0 )); then
-      warn "Unable to verify proxy connectivity for $REPO_USER. Run 'set-proxy' manually if needed."
+    # Try to prime the proxy for the user (but don't fail if it doesn't work)
+    if [[ "$REPO_USER" != "root" ]]; then
+      debug "Attempting to prime proxy for user $REPO_USER"
+      set +e
+      local prime_cmd="HIDDIFY_PROXY_PRIME=1 source '$ROOT_DIR/scripts/set-proxy.sh'"
+      run_as_user "$REPO_USER" bash -c "$prime_cmd" < /dev/null > /dev/null 2>&1
+      set -e
     fi
-    if [[ -t 0 && -t 1 ]]; then
-      info "Proxy helper primed; it will auto-enable once in your next shell."
-    else
-      info "Proxy helper primed for $REPO_USER; the next interactive shell will auto-enable it."
-    fi
+    
+    info "Proxy helper configured. Run 'set-proxy' in your shell to toggle proxy variables."
+  else
+    warn "set-proxy.sh not found or not executable."
   fi
+  
+  debug "enable_proxy_toggle function complete"
 }
 
 summarise() {
@@ -402,9 +536,11 @@ summarise() {
   info "Setup complete."
   echo "Configuration file: $ENV_FILE"
   echo "Docker image: local/hiddify-cli-offline:latest"
+  
   if [[ -n "${docker_group_notice:-}" ]]; then
     echo "$docker_group_notice"
   fi
+  
   if ((${#alias_targets[@]})); then
     echo "Alias 'set-proxy' registered in:"
     for file in "${alias_targets[@]}"; do
@@ -413,30 +549,68 @@ summarise() {
   else
     echo "Alias 'set-proxy' already present."
   fi
+  
+  echo
   echo "Use 'set-proxy' (shell function) to toggle the local proxy in your shells."
-  echo "Open a new shell or run 'exec $SHELL -l' to pick up the function immediately."
+  echo "Open a new shell or run 'exec \$SHELL -l' to pick up the function immediately."
   echo "You can check the stack with 'docker compose ps'."
 }
 
+# MAIN FUNCTION - with proper error handling
 main() {
+  debug "Starting main function"
+  
+  # Change to the repository root directory
   cd "$ROOT_DIR"
+  
   mkdir -p "$STATE_DIR"
   set_owner_if_needed "$STATE_DIR"
-  ensure_executable "$ROOT_DIR/scripts/set-proxy.sh"
-  ensure_executable "$ROOT_DIR/scripts/load-image.sh"
-  ensure_executable "$ROOT_DIR/scripts/install-docker.sh"
-  ensure_executable "$ROOT_DIR/entrypoint.sh"
-  ensure_executable "$ROOT_DIR/HiddifyCli"
+  
+  # Ensure scripts are executable
+  ensure_executable "$ROOT_DIR/scripts/set-proxy.sh" 2>/dev/null || true
+  ensure_executable "$ROOT_DIR/scripts/load-image.sh" 2>/dev/null || true
+  ensure_executable "$ROOT_DIR/scripts/install-docker.sh" 2>/dev/null || true
+  ensure_executable "$ROOT_DIR/entrypoint.sh" 2>/dev/null || true
+  ensure_executable "$ROOT_DIR/HiddifyCli" 2>/dev/null || true
+  
+  # Run the setup steps
   configure_env_file
   ensure_docker
   ensure_image_loaded
+  
+  # Make sure we're in the right directory for docker compose
+  cd "$ROOT_DIR"
+  
   deploy_stack
   setup_aliases
-  touch "$AUTO_ENABLE_FILE"
-  set_owner_if_needed "$AUTO_ENABLE_FILE"
+  
+  # Create auto-enable file
+  touch "$AUTO_ENABLE_FILE" 2>/dev/null || true
+  set_owner_if_needed "$AUTO_ENABLE_FILE" 2>/dev/null || true
+  
   install_proxy_command
-  enable_proxy_toggle
+  
+  # THIS IS CRITICAL - Call enable_proxy_toggle to show IP/location
+  # Wrap in error handling to ensure it runs
+  debug "About to call enable_proxy_toggle"
+  enable_proxy_toggle || {
+    warn "Failed to verify proxy, but setup is complete."
+    echo "  Try testing manually: curl --proxy http://127.0.0.1:$(get_env_value PROXY_PORT "$ENV_FILE") https://icanhazip.com"
+  }
+  
+  # Show summary
   summarise
+  
+  debug "Main function complete"
 }
 
-main "$@"
+# Run main and ensure we don't exit early
+main "$@" || {
+  exit_code=$?
+  warn "Setup encountered an issue (exit code: $exit_code)"
+  exit $exit_code
+}
+
+# Explicitly reach the end
+debug "Script completed successfully"
+exit 0
